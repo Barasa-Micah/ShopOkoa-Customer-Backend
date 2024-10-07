@@ -8,6 +8,10 @@ class User(db.Model):
     password_hash = db.Column(db.String(128), nullable=False)
     orders = db.relationship('Order', backref='user', lazy=True)
 
+    # Define relationships
+    daily_payments = db.relationship('DailyPaymentModel', back_populates='user', lazy='dynamic')
+    payment_history = db.relationship('PaymentHistoryModel', back_populates='user', lazy='dynamic')
+
     def to_dict(self):
         return {
             'id': self.id,
@@ -118,3 +122,79 @@ class Return(db.Model):
             'status': self.status,
             'created_at': self.created_at
         }
+    
+class DailyPaymentModel(db.Model):
+    __tablename__ = 'daily_payments'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    date = db.Column(db.Date, nullable=False, default=lambda: datetime.utcnow().date())  # Use lambda for default date
+    paid = db.Column(db.Boolean, default=False)
+
+    # Relationship with User (like ProductModel with StoreModel)
+    user = db.relationship('User', back_populates='daily_payments')
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'date', name='uq_user_date'),
+        db.Index('idx_user_date', 'user_id', 'date')
+    )
+
+    @classmethod
+    def mark_paid(cls, user_id, date=None):
+        date = date or datetime.utcnow().date()
+        payment = cls.query.filter_by(user_id=user_id, date=date).first()
+
+        if not payment:
+            payment = cls(user_id=user_id, date=date, paid=True)
+            db.session.add(payment)
+        else:
+            payment.paid = True
+
+        db.session.commit()
+        PaymentHistoryModel.record_history(user_id, date, 'paid', 'STK push successful')
+
+    @classmethod
+    def mark_as_unpaid(cls, user_id, date=None):
+        date = date or datetime.utcnow().date()
+        payment = cls.query.filter_by(user_id=user_id, date=date).first()
+
+        if not payment:
+            # Create a new unpaid record for the missed payment
+            payment = cls(user_id=user_id, date=date, paid=False)
+            db.session.add(payment)
+        else:
+            payment.paid = False  # Mark as unpaid if exists
+
+        db.session.commit()
+
+
+class PaymentHistoryModel(db.Model):
+    __tablename__ = 'payment_history'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    date = db.Column(db.Date, nullable=False)
+    status = db.Column(db.String(10), nullable=False)  # 'paid' or 'unpaid'
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    reason = db.Column(db.String(255), nullable=True)
+
+    # Relationship with User (like ProductModel with StoreModel)
+    user = db.relationship('User', back_populates='payment_history')
+
+    def to_dict(self):
+        """Convert the PaymentHistoryModel instance to a dictionary."""
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'date': self.date.isoformat() if self.date else None,  # Convert date to string
+            'status': self.status,
+            'timestamp': self.timestamp.isoformat() if self.timestamp else None,
+            'reason': self.reason,
+        }
+        
+    @classmethod
+    def record_history(cls, user_id, date, status, reason=None):
+        history = cls(user_id=user_id, date=date, status=status, reason=reason)
+        db.session.add(history)
+        db.session.commit()
+

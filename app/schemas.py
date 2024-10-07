@@ -1,3 +1,4 @@
+from datetime import datetime
 from marshmallow import Schema, fields, validate
 
 class UserSchema(Schema):
@@ -51,3 +52,17 @@ class ReturnSchema(Schema):
     reason = fields.Str(required=True, validate=validate.Length(max=500))
     status = fields.Str(required=True, validate=validate.OneOf(['Pending', 'Completed', 'Failed']))
     created_at = fields.DateTime(dump_only=True)
+
+class DailyPaymentSchema(Schema):
+    id = fields.Int(dump_only=True)
+    user_id = fields.Int(required=True)
+    date = fields.Date(required=True, default=datetime.utcnow().date)
+    paid = fields.Boolean(required=True)
+
+class PaymentHistorySchema(Schema):
+    id = fields.Int(dump_only=True)
+    user_id = fields.Int(required=True)
+    date = fields.Date(required=True)
+    status = fields.Str(required=True, validate=validate.OneOf(["paid", "unpaid"]))
+    timestamp = fields.DateTime(dump_only=True, default=datetime.utcnow)
+    reason = fields.Str(required=False)
